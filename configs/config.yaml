@@ -1,0 +1,17 @@
+# Pipeline configuration. Paths relative to the repo root.
+
+data:
+  processed_dir: data/processed
+  n_candidates: 200
+  n_jobs: 25
+  seed: 42
+
+matching:
+  # Final score = w_semantic * embedding cosine + w_skills * skill coverage
+  w_semantic: 0.45
+  w_skills: 0.55
+  required_skill_penalty: 0.15   # per missing must-have skill
+  top_k: 10
+
+eval:
+  experiment_name: resumatch
