@@ -17,8 +17,6 @@
 
 </div>
 
-> **Portfolio project.** Built to demonstrate the Specification Pattern and hybrid, explainable ranking on realistic (synthetic) talent data. Not hardened for production use.
-
 ---
 
 ## The problem
