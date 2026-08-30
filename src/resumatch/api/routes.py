@@ -36,9 +36,9 @@ def jobs() -> list[dict]:
 
 
 @router.get("/rank/{job_id}")
-def rank(job_id: int) -> dict:
+def rank(job_id: int, hard_filter: bool = False) -> dict:
     try:
-        results = rank_candidates(job_id)
+        results = rank_candidates(job_id, hard_filter=hard_filter)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except KeyError as exc:

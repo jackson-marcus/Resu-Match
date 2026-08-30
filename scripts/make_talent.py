@@ -50,6 +50,25 @@ DISTRACTORS = [
     "Volunteer coding instructor at a local school.",
 ]
 
+# Structured hard-requirement fields the Specification Pattern reads from
+# candidates (years_experience, degree, location, remote). Populated here so the
+# ExperienceSpec/DegreeSpec/LocationSpec are usable on the live serving path.
+DEGREES = ["none", "associate", "bachelors", "bachelors", "masters", "masters", "phd"]
+LOCATIONS = ["San Francisco", "New York", "Austin", "Seattle", "Boston", "Remote"]
+
+# Per-role hard requirements attached to each job post; kept modest so the hard
+# filter narrows rather than empties the pool.
+ROLE_REQUIREMENTS = {
+    "backend engineer": {"min_years": 2.0, "min_degree": "bachelors"},
+    "frontend engineer": {"min_years": 1.0, "min_degree": "none"},
+    "ml engineer": {"min_years": 3.0, "min_degree": "masters"},
+    "data engineer": {"min_years": 2.0, "min_degree": "bachelors"},
+    "data analyst": {"min_years": 1.0, "min_degree": "bachelors"},
+    "devops engineer": {"min_years": 2.0, "min_degree": "none"},
+    "product manager": {"min_years": 3.0, "min_degree": "bachelors"},
+    "nlp engineer": {"min_years": 3.0, "min_degree": "masters"},
+}
+
 
 def generate(n_candidates: int, n_jobs: int, seed: int = 42):
     rng = np.random.default_rng(seed)
@@ -61,6 +80,7 @@ def generate(n_candidates: int, n_jobs: int, seed: int = 42):
         role = role_names[j % len(role_names)]
         spec = ROLES[role]
         nice = [s for s in spec["nice"] if rng.random() < 0.8]
+        reqs = ROLE_REQUIREMENTS[role]
         jobs.append(
             {
                 "job_id": j + 1,
@@ -68,6 +88,11 @@ def generate(n_candidates: int, n_jobs: int, seed: int = 42):
                 "role": role,
                 "must_have": spec["must"],
                 "nice_have": nice,
+                # Structured hard requirements consumed by from_job_requirements().
+                "min_years": reqs["min_years"],
+                "min_degree": reqs["min_degree"],
+                "locations": [],  # no geographic constraint by default
+                "accept_remote": True,
                 "description": (
                     f"We are hiring a {role}. Required: {', '.join(spec['must'])}. "
                     f"Bonus points for {', '.join(nice) if nice else 'a growth mindset'}."
@@ -97,12 +122,18 @@ def generate(n_candidates: int, n_jobs: int, seed: int = 42):
             template = PROSE[int(rng.integers(0, len(PROSE)))]
             parts.append(template.format(skills=", ".join(chunk)))
         parts.append(DISTRACTORS[int(rng.integers(0, len(DISTRACTORS)))])
+        location = LOCATIONS[int(rng.integers(0, len(LOCATIONS)))]
         candidates.append(
             {
                 "candidate_id": c + 1,
                 "name": f"candidate_{c + 1}",
                 "home_role": home_role,
                 "true_skills": sorted(skills),
+                # Structured fields the ExperienceSpec/DegreeSpec/LocationSpec read.
+                "years_experience": round(float(rng.uniform(0.0, 12.0)), 1),
+                "degree": DEGREES[int(rng.integers(0, len(DEGREES)))],
+                "location": location,
+                "remote": location == "Remote" or bool(rng.random() < 0.4),
                 "resume": " ".join(parts),
             }
         )

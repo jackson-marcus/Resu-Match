@@ -16,6 +16,7 @@ import pandas as pd
 
 from resumatch.settings import get_config, resolve_path
 from resumatch.skills.taxonomy import extract_skills
+from resumatch.specs.predicates import SkillSpec, Spec, from_job_requirements
 
 
 @functools.lru_cache(maxsize=1)
@@ -70,7 +71,29 @@ def score_pair(
     }
 
 
-def rank_candidates(job_id: int, top_k: int | None = None) -> list[dict]:
+def job_hard_spec(job) -> Spec:
+    """Build the composite hard-requirement Spec from a job's structured fields.
+
+    Reads the must-have skills plus the ``min_years``/``min_degree``/``locations``
+    columns populated by the talent generator, falling back to permissive
+    defaults when a column is absent (e.g. an older parquet).
+    """
+    min_years = job.get("min_years", 0.0)
+    min_degree = job.get("min_degree", "none")
+    locations = job.get("locations", None)
+    accept_remote = job.get("accept_remote", True)
+    return from_job_requirements(
+        must_have_skills=list(job["must_have"]),
+        min_years=float(min_years) if min_years is not None else 0.0,
+        min_degree=str(min_degree) if min_degree is not None else "none",
+        locations=list(locations) if locations is not None else [],
+        accept_remote=bool(accept_remote) if accept_remote is not None else True,
+    )
+
+
+def rank_candidates(
+    job_id: int, top_k: int | None = None, hard_filter: bool = False
+) -> list[dict]:
     cfg = get_config()["matching"]
     top_k = top_k or cfg["top_k"]
     jobs, candidates, job_vecs, cand_vecs = load_pool()
@@ -80,16 +103,38 @@ def rank_candidates(job_id: int, top_k: int | None = None) -> list[dict]:
     job = job_row.iloc[0]
     j_idx = int(job_row.index[0])
     sims = cand_vecs @ job_vecs[j_idx]
+    spec = job_hard_spec(job)
 
     results = []
     for i, cand in candidates.iterrows():
+        extracted = set(cand["extracted_skills"])
         detail = score_pair(
-            set(cand["extracted_skills"]),
+            extracted,
             list(job["must_have"]),
             list(job["nice_have"]),
             float(sims[i]),
         )
-        results.append({"candidate_id": int(cand["candidate_id"]), "name": cand["name"], **detail})
+        # Evaluate the hard-requirement specs against the candidate's structured
+        # fields, flagging (and optionally filtering) failures on the live path.
+        spec_input = {
+            "extracted_skills": extracted,
+            "years_experience": cand.get("years_experience", 0),
+            "degree": cand.get("degree", "none"),
+            "location": cand.get("location", ""),
+            "remote": bool(cand.get("remote", False)),
+        }
+        passes = spec.is_satisfied_by(spec_input)
+        if hard_filter and not passes:
+            continue
+        results.append(
+            {
+                "candidate_id": int(cand["candidate_id"]),
+                "name": cand["name"],
+                "passes_hard_requirements": passes,
+                "hard_requirements": spec.explain(spec_input),
+                **detail,
+            }
+        )
     results.sort(key=lambda r: -r["score"])
     return results[:top_k]
 
@@ -102,9 +147,20 @@ def rank_jobs(resume_text: str, top_k: int | None = None) -> list[dict]:
     v = embed([resume_text])[0]
     sims = job_vecs @ v
 
+    spec_input = {"extracted_skills": skills}
     results = []
     for i, job in jobs.iterrows():
         detail = score_pair(skills, list(job["must_have"]), list(job["nice_have"]), float(sims[i]))
-        results.append({"job_id": int(job["job_id"]), "title": job["title"], **detail})
+        # A résumé carries no structured years/degree/location, so on this path
+        # the hard requirement we can evaluate is must-have skill coverage.
+        skill_spec = SkillSpec(set(job["must_have"]))
+        results.append(
+            {
+                "job_id": int(job["job_id"]),
+                "title": job["title"],
+                "meets_must_have_skills": skill_spec.is_satisfied_by(spec_input),
+                **detail,
+            }
+        )
     results.sort(key=lambda r: -r["score"])
     return results[:top_k]
